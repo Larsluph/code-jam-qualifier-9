@@ -20,6 +20,7 @@ class RestaurantManager:
         already defined a staff dictionary.
         """
         self.staff = {}
+        self.busy = {}
 
     async def __call__(self, request: Request):
         """Handle a request received.
@@ -31,4 +32,31 @@ class RestaurantManager:
             Request object containing information about the sent
             request to your application.
         """
-        ...
+        request_type = request.scope["type"]
+
+        if request_type == "staff.onduty":
+            self.staff[request.scope["id"]] = request
+            self.busy[request.scope["id"]] = False
+
+        elif request_type == "staff.offduty":
+            del self.staff[request.scope["id"]]
+
+        elif request_type == "order":
+            order_speciality = request.scope["speciality"]
+
+            # Select staff that is free and got required speciality
+            for free_staff in self.staff.values():
+                busy = self.busy[free_staff.scope["id"]]
+                if not busy and order_speciality in free_staff.scope["speciality"]:
+                    # If so, staff become busy
+                    self.busy[free_staff.scope["id"]] = True
+                    break
+
+            full_order = await request.receive()
+            await free_staff.send(full_order)
+
+            result = await free_staff.receive()
+            await request.send(result)
+
+            # order complete, staff not busy anymore
+            self.busy[free_staff.scope["id"]] = False
